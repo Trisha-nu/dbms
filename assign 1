@@ -1,0 +1,124 @@
+-- Create Tables
+
+CREATE TABLE IF NOT EXISTS Employees (
+    EmployeeID INT PRIMARY KEY,
+    Name VARCHAR(100),
+    Department VARCHAR(50),
+    Position VARCHAR(50),
+    HireDate DATE
+);
+
+CREATE TABLE IF NOT EXISTS TrainingModules (
+    ModuleID INT PRIMARY KEY,
+    ModuleName VARCHAR(100),
+    Description TEXT,
+    Duration INT, -- Duration in hours
+    Level VARCHAR(20)
+);
+
+CREATE TABLE IF NOT EXISTS Certifications (
+    CertificationID INT PRIMARY KEY,
+    CertificationName VARCHAR(100),
+    ValidityPeriod INT, -- Validity period in months
+    Description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS EmployeeTrainingEnrollments (
+    EnrollmentID INT PRIMARY KEY AUTO_INCREMENT,
+    EmployeeID INT,
+    ModuleID INT,
+    EnrollmentDate DATE,
+    CompletionDate DATE,
+    Status VARCHAR(20), -- 'Enrolled', 'In Progress', 'Completed'
+    FOREIGN KEY (EmployeeID) REFERENCES Employees(EmployeeID),
+    FOREIGN KEY (ModuleID) REFERENCES TrainingModules(ModuleID)
+);
+
+CREATE TABLE IF NOT EXISTS EmployeeCertifications (
+    EmployeeCertID INT PRIMARY KEY AUTO_INCREMENT,
+    EmployeeID INT,
+    CertificationID INT,
+    DateObtained DATE,
+    ExpiryDate DATE,
+    Status VARCHAR(20), -- 'Active', 'Expired', 'Renewed'
+    FOREIGN KEY (EmployeeID) REFERENCES Employees(EmployeeID),
+    FOREIGN KEY (CertificationID) REFERENCES Certifications(CertificationID)
+);
+
+CREATE TABLE IF NOT EXISTS SkillAssessments (
+    AssessmentID INT PRIMARY KEY AUTO_INCREMENT,
+    EmployeeID INT,
+    SkillName VARCHAR(100),
+    SkillLevel INT, -- Skill level from 1-10
+    AssessmentDate DATE,
+    FOREIGN KEY (EmployeeID) REFERENCES Employees(EmployeeID)
+);
+
+-- Stored Procedures
+
+DROP PROCEDURE IF EXISTS EnrollEmployeeInTraining;
+CREATE PROCEDURE EnrollEmployeeInTraining(IN empID INT, IN modID INT)
+BEGIN
+    INSERT INTO EmployeeTrainingEnrollments (EmployeeID, ModuleID, EnrollmentDate, Status)
+    VALUES (empID, modID, CURDATE(), 'Enrolled');
+END;
+
+DROP PROCEDURE IF EXISTS GenerateEmployeePerformanceReport;
+CREATE PROCEDURE GenerateEmployeePerformanceReport(IN empID INT)
+BEGIN
+    SELECT e.Name, e.Department, t.ModuleName, et.CompletionDate, et.Status
+    FROM Employees e
+    JOIN EmployeeTrainingEnrollments et ON e.EmployeeID = et.EmployeeID
+    JOIN TrainingModules t ON et.ModuleID = t.ModuleID
+    WHERE e.EmployeeID = empID;
+END;
+
+-- Queries
+
+-- Training Completion Rates
+SELECT 
+    t.ModuleName,
+    COUNT(CASE WHEN et.Status = 'Completed' THEN 1 END) AS Completed,
+    COUNT(et.EnrollmentID) AS TotalEnrolled,
+    ROUND(COUNT(CASE WHEN et.Status = 'Completed' THEN 1 END) / COUNT(et.EnrollmentID) * 100, 2) AS CompletionRate
+FROM TrainingModules t
+JOIN EmployeeTrainingEnrollments et ON t.ModuleID = et.ModuleID
+GROUP BY t.ModuleID;
+
+-- Skill Advancement Over Time
+SELECT 
+    sa.EmployeeID, 
+    sa.SkillName, 
+    MIN(sa.SkillLevel) AS InitialLevel,
+    MAX(sa.SkillLevel) AS CurrentLevel,
+    DATEDIFF(MAX(sa.AssessmentDate), MIN(sa.AssessmentDate)) AS DaysBetweenAssessments
+FROM SkillAssessments sa
+GROUP BY sa.EmployeeID, sa.SkillName;
+
+-- Certification Renewals
+SELECT 
+    e.Name, 
+    c.CertificationName, 
+    ec.ExpiryDate, 
+    CASE 
+        WHEN ec.ExpiryDate < CURDATE() THEN 'Expired'
+        ELSE 'Active'
+    END AS Status
+FROM Employees e
+JOIN EmployeeCertifications ec ON e.EmployeeID = ec.EmployeeID
+JOIN Certifications c ON ec.CertificationID = c.CertificationID
+WHERE ec.ExpiryDate < CURDATE() + INTERVAL 3 MONTH;
+
+-- Views
+
+DROP VIEW IF EXISTS EmployeeSkillLevels;
+CREATE VIEW EmployeeSkillLevels AS
+SELECT 
+    e.EmployeeID,
+    e.Name,
+    e.Department,
+    sa.SkillName,
+    MAX(sa.SkillLevel) AS CurrentSkillLevel
+FROM Employees e
+JOIN SkillAssessments sa ON e.EmployeeID = sa.EmployeeID
+GROUP BY e.EmployeeID, sa.SkillName;
